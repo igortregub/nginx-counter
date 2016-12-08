@@ -1,0 +1,10 @@
+version: '2'
+
+services:
+  test:
+    build: .
+    volumes:
+      - ./www:/var/www
+    ports:
+      - "3443:80"
+    restart: always

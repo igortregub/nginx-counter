@@ -1,0 +1,59 @@
+FROM debian:jessie
+
+RUN apt-get update && apt-get install unzip wget gcc libpcre3 libpcre3-dev libssl-dev zlib1g-dev make redis-server supervisor -y
+
+# variables
+ENV LuaJIT_VERSION=2.0.4
+ENV Nginx_VERSION=1.9.15
+ENV Lua_Nginx_VERSION=0.10.7
+ENV Ngx_Devel_Kit_VERSION=0.3.0
+ENV Lua_Redis_lib_VERSION=0.26
+
+# Installing LuaJIT
+RUN wget http://luajit.org/download/LuaJIT-${LuaJIT_VERSION}.zip -O /usr/src/LuaJIT.zip
+RUN cd /usr/src && unzip LuaJIT.zip -d /usr/src
+RUN cd /usr/src/LuaJIT-${LuaJIT_VERSION} && make && make install
+
+#downolading modules and nginx
+RUN wget https://github.com/simpl/ngx_devel_kit/archive/v${Ngx_Devel_Kit_VERSION}.zip -O /usr/src/ngx_devel_kit.zip
+RUN wget https://github.com/openresty/lua-nginx-module/archive/v${Lua_Nginx_VERSION}.zip -O /usr/src/lua-nginx-module.zip
+RUN wget http://nginx.org/download/nginx-${Nginx_VERSION}.tar.gz -O /usr/src/nginx.tar.gz
+
+RUN cd /usr/src && unzip ngx_devel_kit.zip -d /usr/src
+RUN cd /usr/src && unzip lua-nginx-module.zip -d /usr/src
+RUN cd /usr/src && tar -zxvf nginx.tar.gz
+#
+## configuring and installing nginx
+RUN export LUAJIT_LIB=/usr/local/lib
+RUN export LUAJIT_INC=/usr/local/include/luajit-2.1
+
+RUN cd /usr/src/nginx-${Nginx_VERSION} && \
+    ./configure \
+    --prefix=/etc/nginx \
+    --sbin-path=/usr/sbin/nginx \
+    --conf-path=/etc/nginx/nginx.conf \
+    --error-log-path=/var/log/nginx/error.log \
+    --http-log-path=/var/log/nginx/access.log \
+    --pid-path=/var/run/nginx.pid \
+    --lock-path=/var/run/nginx.lock \
+    --with-ld-opt="-Wl,-rpath,/usr/local/lib" \
+    --add-module=/usr/src/ngx_devel_kit-${Ngx_Devel_Kit_VERSION} \
+    --add-module=/usr/src/lua-nginx-module-${Lua_Nginx_VERSION} \
+    --without-http_gzip_module
+
+RUN cd /usr/src/nginx-${Nginx_VERSION} && make -j2 && make install
+
+# download and install lua redis lib
+RUN wget https://github.com/openresty/lua-resty-redis/archive/v${Lua_Redis_lib_VERSION}.zip -O /usr/src/lua-resty-redis.zip
+RUN cd /usr/src && unzip lua-resty-redis.zip -d /usr/src
+RUN cd /usr/src/lua-resty-redis-${Lua_Redis_lib_VERSION} && make install
+
+## forward request and error logs to docker log collector
+RUN ln -sf /dev/stdout /var/log/nginx/access.log && ln -sf /dev/stderr /var/log/nginx/error.log
+
+COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+COPY nginx.conf /etc/nginx/nginx.conf
+
+EXPOSE 80 443 6379
+
+CMD ["/usr/bin/supervisord"]
